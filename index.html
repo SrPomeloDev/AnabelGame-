@@ -1,1 +1,472 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pasea Perritos con Anabel</title>
+  <style>
+    body, html {
+      margin: 0; padding: 0; height: 100%; overflow: hidden;
+      background: #bef7be;
+    }
+    #game-container {
+      position: relative;
+      width: 100%; height: 100%;
+    }
+    canvas {
+      display: block;
+      background: #bef7be;
+    }
+    #hud {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 20px;
+      z-index: 2;
+    }
+    .hud-item {
+      background: white;
+      padding: 5px 15px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-family: sans-serif;
+      user-select: none;
+    }
+    #start-screen, #game-over {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(255,255,255,0.9);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 10;
+    }
+    #game-over { display: none; }
+    .game-button {
+      font-size: 1.5rem;
+      padding: 10px 20px;
+      border-radius: 20px;
+      border: none;
+      background: #ff6b9e;
+      color: white;
+      cursor: pointer;
+      user-select: none;
+    }
+    #message-display {
+      position: absolute;
+      bottom: 100px;
+      width: 100%;
+      text-align: center;
+      font-size: 18px;
+      font-weight: bold;
+      color: #d40000;
+      text-shadow: 1px 1px 2px white;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <div class="hud-item">Perritos: <span id="perros-count">1</span></div>
+      <div class="hud-item">Puntos: <span id="points-count">0</span></div>
+    </div>
+    <div id="message-display"></div>
+    <div id="start-screen">
+      <h2>Pasea Perritos con Anabel ❤️</h2>
+      <button id="start-button" class="game-button">Comenzar</button>
+    </div>
+    <div id="game-over">
+      <h2>¡Juego Terminado!</h2>
+      <p>Puntuación: <span id="final-score">0</span></p>
+      <p>Perritos salvados: <span id="final-perros">1</span></p>
+      <button id="restart-button" class="game-button">Jugar de nuevo</button>
+    </div>
+  </div>
 
+<script>
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  const startScreen = document.getElementById("start-screen");
+  const gameOverScreen = document.getElementById("game-over");
+  const perrosCount = document.getElementById("perros-count");
+  const pointsCount = document.getElementById("points-count");
+  const finalScore = document.getElementById("final-score");
+  const finalPerros = document.getElementById("final-perros");
+  const messageDisplay = document.getElementById("message-display");
+
+  let ANCHO, ALTO;
+  let ariana, juegoActivo = false, puntos = 0;
+  let perros = [], correas = [], huesos = [], autos = [], obstaculos = [];
+  let ultimoAuto = 0;
+  let tiempoUltimaBarrera = 0;
+  let escudo = null; // Poder escudo
+
+  const emojisBarreras = ["🚧", "🛑", "⛔", "🚫"];
+  const mensajesPerdida = [
+    "¡Oh no! Un perrito se escapó",
+    "¡Cuidado! Un perrito se asustó",
+    "¡Ay! Perdiste un perrito",
+    "Un perrito soltó la correa",
+    "¡Corre! Un perrito se fue",
+    "¡Ups! Un perrito se perdió"
+  ];
+
+  function mostrarMensaje(mensaje) {
+    messageDisplay.textContent = mensaje;
+    messageDisplay.style.opacity = 1;
+    setTimeout(() => {
+      messageDisplay.style.opacity = 0;
+    }, 2000);
+  }
+
+  function resizeCanvas() {
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = canvas.parentElement.clientHeight;
+    ANCHO = canvas.width;
+    ALTO = canvas.height;
+  }
+
+  function init() {
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    document.getElementById("start-button").addEventListener("click", comenzarJuego);
+    document.getElementById("restart-button").addEventListener("click", () => location.reload());
+
+    canvas.addEventListener("mousemove", e => { 
+      if (juegoActivo) setDestino(e.clientX, e.clientY); 
+    });
+    canvas.addEventListener("touchmove", e => {
+      e.preventDefault();
+      if (juegoActivo) {
+        const t = e.touches[0];
+        setDestino(t.clientX, t.clientY);
+      }
+    }, {passive:false});
+  }
+
+  function setDestino(x, y) {
+    const rect = canvas.getBoundingClientRect();
+    ariana.destinoX = x - rect.left;
+    ariana.destinoY = y - rect.top;
+  }
+
+  function comenzarJuego() {
+    startScreen.style.display = "none";
+    gameOverScreen.style.display = "none";
+    juegoActivo = true;
+    puntos = 0;
+    pointsCount.textContent = "0";
+    perros = [];
+    correas = [];
+    huesos = [];
+    autos = [];
+    obstaculos = [];
+    escudo = null;
+    ultimoAuto = 0;
+    tiempoUltimaBarrera = 0;
+
+    ariana = { 
+      x: ANCHO/2, 
+      y: ALTO-120, 
+      destinoX: ANCHO/2, 
+      destinoY: ALTO-120, 
+      radio: 20 
+    };
+    agregarPerro();
+    for (let i = 0; i < 3; i++) {
+      agregarHueso();
+    }
+    requestAnimationFrame(actualizarJuego);
+  }
+
+  function actualizarJuego(t) {
+    if (!juegoActivo) return;
+    ctx.clearRect(0, 0, ANCHO, ALTO);
+
+    moverAriana();
+    dibujarCorreas();
+    dibujarPerros();
+    dibujarAriana();
+    actualizarHuesos();
+    actualizarAutos(t);
+    actualizarBarreras(t);
+    dibujarEscudo(t);
+
+    requestAnimationFrame(actualizarJuego);
+  }
+
+  function moverAriana() {
+    const dx = ariana.destinoX - ariana.x;
+    const dy = ariana.destinoY - ariana.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > 1) {
+      const vel = Math.min(10, dist*0.12);
+      ariana.x += (dx/dist)*vel;
+      ariana.y += (dy/dist)*vel;
+    }
+    ariana.x = Math.max(ariana.radio, Math.min(ariana.x, ANCHO - ariana.radio));
+    ariana.y = Math.max(ariana.radio, Math.min(ariana.y, ALTO - ariana.radio));
+  }
+
+  function dibujarAriana() {
+    ctx.font = "36px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("👧🏻", ariana.x, ariana.y);
+  }
+
+  function agregarPerro() {
+    perros.push({
+      x: ariana.x + (Math.random()*100-50),
+      y: ariana.y + (Math.random()*100-50),
+      emoji: "🐕"
+    });
+    correas.push({});
+    perrosCount.textContent = perros.length;
+  }
+
+  function dibujarPerros() {
+    perros.forEach((p,i) => {
+      ctx.font = "36px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(p.emoji, p.x, p.y);
+      const dx = ariana.x - p.x;
+      const dy = ariana.y - p.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist > 1) {
+        p.x += (dx/dist)*2.5;
+        p.y += (dy/dist)*2.5;
+      }
+      correas[i] = {x: p.x, y: p.y};
+    });
+  }
+
+  function dibujarCorreas() {
+    ctx.strokeStyle = "#a0643c";
+    ctx.lineWidth = 3;
+    correas.forEach(c => {
+      ctx.beginPath();
+      ctx.moveTo(ariana.x, ariana.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.stroke();
+    });
+  }
+
+  function agregarHueso() {
+    huesos.push({
+      x: Math.random()*(ANCHO-60)+30,
+      y: Math.random()*(ALTO-300)+100,
+      radio: 15
+    });
+  }
+
+  function actualizarHuesos() {
+    ctx.font = "28px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "white";
+
+    for (let i=huesos.length-1; i>=0; i--) {
+      const h = huesos[i];
+      ctx.fillText("🦴", h.x, h.y);
+      const dx = h.x - ariana.x;
+      const dy = h.y - ariana.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < ariana.radio + h.radio) {
+        puntos++;
+        pointsCount.textContent = puntos;
+        agregarPerro();
+        huesos.splice(i,1);
+        agregarHueso();
+      }
+    }
+    if (huesos.length < 1) {
+      agregarHueso();
+    }
+  }
+
+  function intervaloAutoPorPuntos(puntos) {
+    const max = 1500;
+    const min = 400;
+    const maxPuntosParaMaxDificultad = 40;
+    const ratio = Math.min(puntos, maxPuntosParaMaxDificultad) / maxPuntosParaMaxDificultad;
+    return max - (max - min) * ratio;
+  }
+
+  function agregarAuto() {
+    const y = Math.random()*(ALTO-300)+150;
+    const lado = Math.random() > 0.5 ? "izq" : "der";
+    const aumentoVelocidad = Math.min(Math.floor(puntos / 3), 3);
+    const baseVelocidad = 5 + aumentoVelocidad;
+    const vel = (Math.random() * 1 + baseVelocidad) * (lado === "izq" ? 1 : -1);
+    autos.push({
+      y,
+      x: lado === "izq" ? -40 : ANCHO+40,
+      vel,
+      lado
+    });
+  }
+
+  function actualizarAutos(t) {
+    if (t - ultimoAuto > intervaloAutoPorPuntos(puntos) && autos.length < 6) {
+      agregarAuto();
+      ultimoAuto = t;
+    }
+    ctx.font = "32px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "black";
+
+    for (let i=autos.length-1; i>=0; i--) {
+      const a = autos[i];
+      ctx.fillText("🚗", a.x, a.y);
+      a.x += a.vel;
+      if (Math.abs(a.y - ariana.y) < 20 && Math.abs(a.x - ariana.x) < 30) {
+        if (escudo && escudo.activo) {
+          escudo = null;
+          mostrarMensaje("¡Escudo salvó a Anabel!");
+          autos.splice(i,1);
+        } else {
+          terminarJuego();
+          return;
+        }
+      }
+      if ((a.lado === "izq" && a.x > ANCHO+50) || (a.lado === "der" && a.x < -50)) {
+        autos.splice(i,1);
+      }
+    }
+  }
+
+  function intervaloBarreraPorPuntos(puntos) {
+    const max = 1500;
+    const min = 200;
+    const maxPuntosParaMaxDificultad = 40;
+    const ratio = Math.min(puntos, maxPuntosParaMaxDificultad)/maxPuntosParaMaxDificultad;
+    return max - (max - min)*ratio;
+  }
+
+  function agregarBarrera() {
+    if (obstaculos.length >= 7) return;
+    obstaculos.push({
+      x: Math.random()*(ANCHO-60)+30,
+      y: Math.random()*(ALTO-300)+100,
+      emoji: emojisBarreras[Math.floor(Math.random()*emojisBarreras.length)],
+      tiempoVida: 1000 + Math.random()*3000,
+      creadoEn: performance.now(),
+      radio: 18
+    });
+  }
+
+  function actualizarBarreras(t) {
+    ctx.font = "36px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "black";
+
+    if (t - tiempoUltimaBarrera > intervaloBarreraPorPuntos(puntos)) {
+      agregarBarrera();
+      tiempoUltimaBarrera = t;
+    }
+
+    for (let i=obstaculos.length-1; i>=0; i--) {
+      const o = obstaculos[i];
+      ctx.fillText(o.emoji, o.x, o.y);
+      if (t - o.creadoEn > o.tiempoVida) {
+        obstaculos.splice(i,1);
+      } else {
+        const dx = o.x - ariana.x;
+        const dy = o.y - ariana.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < ariana.radio + o.radio) {
+          if (escudo && escudo.activo) {
+            escudo = null;
+            mostrarMensaje("¡Escudo protegió a Anabel!");
+            obstaculos.splice(i,1);
+            continue;
+          }
+          if (perros.length > 0) {
+            const mensajeAleatorio = mensajesPerdida[Math.floor(Math.random()*mensajesPerdida.length)];
+            mostrarMensaje(mensajeAleatorio);
+            perros.pop();
+            correas.pop();
+            perrosCount.textContent = perros.length;
+            if (perros.length === 0) {
+              terminarJuego();
+            }
+          }
+          obstaculos.splice(i,1);
+        }
+      }
+    }
+  }
+
+  function agregarEscudo() {
+    if (escudo) return;
+    escudo = {
+      x: Math.random() * (ANCHO - 60) + 30,
+      y: Math.random() * (ALTO - 300) + 100,
+      radio: 20,
+      activo: false,
+      tiempoInicio: 0
+    };
+  }
+
+  function dibujarEscudo(t) {
+    if (!escudo) {
+      // baja probabilidad de crear escudo
+      if (Math.random() < 0.002) {
+        agregarEscudo();
+      }
+      return;
+    }
+
+    if (escudo.activo) {
+      // dibujar escudo alrededor de Anabel
+      if (t - escudo.tiempoInicio > 5000) {
+        escudo = null;
+      } else {
+        ctx.strokeStyle = "cyan";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(ariana.x, ariana.y, ariana.radio + 15, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
+    } else {
+      // escudo esperando a ser tomado
+      ctx.font = "30px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🛡️", escudo.x, escudo.y);
+
+      const dx = escudo.x - ariana.x;
+      const dy = escudo.y - ariana.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < ariana.radio + escudo.radio) {
+        escudo.activo = true;
+        escudo.tiempoInicio = t;
+        mostrarMensaje("¡Escudo activado! 🛡️");
+      }
+    }
+  }
+
+  function terminarJuego() {
+    juegoActivo = false;
+    finalScore.textContent = puntos;
+    finalPerros.textContent = perros.length;
+    gameOverScreen.style.display = "flex";
+  }
+
+  window.addEventListener("load", init);
+</script>
+</body>
+</html>
